@@ -1,6 +1,8 @@
 {
 	"x" : 5,
 	"change": 1.05,
+	"up":4,
 	"xCrypto": 5,
-	"changeCrypto": 105
+	"changeCrypto": 1.05,
+	"upCrypto":4
 }

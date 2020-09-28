@@ -44,6 +44,9 @@ def getOrder(ident):
     order = r.get_stock_order_info(ident)
     print("Order state: " + order["state"])
     return order
+
+def getSymbolFromOrder(order):
+    return r.get_symbol_by_url(order['instrument'])
     
 
 ############ PROGRAM ###################
@@ -66,7 +69,8 @@ with open(preferences_file) as pdata:
     d = json.load(pdata)
     xBuy = d["x"]
     change = d["change"]
-xSell = xBuy*change
+    up = d["up"]
+xSell = xBuy*pow(change,up)
 print("\nBuying amount per level: $"+str(xBuy)+"\nSell amount per level up: $"+str(xSell))    
 
 if isfile(credentials_file):
@@ -102,8 +106,6 @@ input("\nYour stocks and the last trade prices of each on your account?\n\n<ente
 numSymbols = len(d)
 # print(numSymbols)
 
-
-
 positions = r.get_open_stock_positions()
 
 numPositions = len(positions)
@@ -132,48 +134,48 @@ for s in d:
     if Ask < Ltp/change:
         print("\nBuying "+s+"...\n")        
         if realTrading:
-            orderid = buy(s,xBuy)
+            orderid = (buy(s,xBuy),"buyLow")
             time.sleep(5)
-            if getOrder(orderid)["state"] == "filled":
+            if getOrder(orderid[0])["state"] == "filled":
                 d[s]=Ltp/change
                 print("Buy order filled :)")
                 with open(stock_file,'w') as outfile:
                     json.dump(d,outfile)  
             else: 
-                if getOrder(orderid)["state"]=="queued": cancel(orderid)
+                if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0])
                 check[s]=orderid
         else: mockSpend+=xBuy
         
     #selling
-    if Bid > Ltp*change: 
+    if Bid > Ltp*pow(change,up): 
         print("\nSelling "+s+" if sufficient quantity, otherwise buy...\n")
         
         if(s in quantities):
             if(quantities[s]*Bid>xSell):                
                 if realTrading:
-                    orderid = sell(s,xSell)
+                    orderid = (sell(s,xSell),"sellHigh")
                     time.sleep(5)
-                    if getOrder(orderid)["state"] == "filled":
+                    if getOrder(orderid[0])["state"] == "filled":
                         d[s]=Ltp*change
                         print("Sell order filled :)")
                         with open(stock_file,'w') as outfile:
                             json.dump(d,outfile)  
                     else: 
-                        if getOrder(orderid)["state"]=="queued": cancel(orderid)
+                        if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0])
                         check[s]=orderid
                 else: mockSell+=xSell
             else:
                 print("Not enough stock to sell, buying more instead...")
                 if realTrading:
-                    orderid = buy(s,xBuy)
+                    orderid = (buy(s,xBuy),"buyHigh")
                     time.sleep(5)
-                    if getOrder(orderid)["state"] == "filled":
-                        d[s]=Ltp*change
+                    if getOrder(orderid[0])["state"] == "filled":
+                        d[s]=Ltp*pow(change,up)
                         print("re-up Buy order filled")
                         with open(stock_file,'w') as outfile:
                             json.dump(d,outfile)  
                     else: 
-                        if getOrder(orderid)["state"]=="queued": cancel(orderid)
+                        if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0])
                         check[s]=orderid
                 else: mockSpend+=xBuy
                         
@@ -184,20 +186,24 @@ if realTrading:
     while len(check) > 0:
         print("Still not filled: LTP not updated so you may cancel these manually. Once all filled or cancelled this loop ends.  Trying again in 15 seconds...")
         done = []
-        for s in check:
-            print("checking: "+s)
-            order = getOrder(check[s])
+        for tup in check:
+            s = getSymbolFromOrder(tup[0])
+            print("checking: "+tup)
+            order = getOrder(tup[0])
             if order["state"] == "filled":
                 Ltp = d[s]
                 if order["side"] == "buy":            
-                    d[s]=Ltp/change
+                    if(tup[1]=="buyLow"):
+                        d[s]=Ltp/change
+                    if(tup[1]=="buyHigh"):
+                        d[s]=Ltp*pow(change,up)
                 if order["side"] == "sell":
                     d[s]=Ltp*change
                 with open(stock_file,'w') as outfile:
                             json.dump(d,outfile) 
-                done.append(s)
+                done.append(tup)
             if order["state"] == "cancelled" or order["state"] == "canceled": 
-                done.append(s)
+                done.append(tup)
         if len(done) > 0:
             for d in done:
                 del check[d]
@@ -213,53 +219,3 @@ else:
 input()
         
     
-    
-    
-    
-    
-######## TESTS ############
-
-# trade = buy("ASM",1) #test: works
-# print(trade)
-# print(trade["id"]) # test: works
-# cancel = r.cancel_stock_order('e2f3b028-900d-4583-b15e-bbf83adf7f11') # test: works
-# print(cancel)
-# trade = sell("ASM",1) #test: works
-# cancel = r.cancel_stock_order('f5e182ad-8400-4b02-b569-6a09f7d05433')
-# print(cancel)
-# print(getOrder('fa2aed26-6e70-44ef-8a12-2f681056b0a7'))
-# print(getOrder('fa2aed26-6e70-44ef-8a12-2f681056b0a7')['state'])
-# cancel('fa2aed26-6e70-44ef-8a12-2f681056b0a7') # test: works
-
-#### if you cancel the first time, print(cancel) shows only {}
-#### but if you try to cancel an already cancelled order...
-# Order f5e182ad-8400-4b02-b569-6a09f7d05433 cancelled
-# {'detail': 'Order cannot be cancelled at this time.'}
-
-
-
-###### what a sell return structure looks like... 
-
-# {'id': 'f5e182ad-8400-4b02-b569-6a09f7d05433', 'ref_id': '17afa802-d009-4644-8780-fb3b5b5121d8', 'url': 'https://api.robinhood.com/orders/f5e182ad-8400-4b02-b56
-# 9-6a09f7d05433/', 'account': 'https://api.robinhood.com/accounts/453164410/', 'position': 'https://api.robinhood.com/positions/453164410/b507e255-8116-4dd7-be84
-# -38781e3e929a/', 'cancel': 'https://api.robinhood.com/orders/f5e182ad-8400-4b02-b569-6a09f7d05433/cancel/', 'instrument': 'https://api.robinhood.com/instruments
-# /b507e255-8116-4dd7-be84-38781e3e929a/', 'cumulative_quantity': '0.00000000', 'average_price': None, 'fees': '0.00', 'state': 'unconfirmed', 'type': 'market', '
-# side': 'sell', 'time_in_force': 'gfd', 'trigger': 'immediate', 'price': '0.91000000', 'stop_price': None, 'quantity': '1.10000000', 'reject_reason': None, 'crea
-# ted_at': '2020-09-19T07:06:08.162760Z', 'updated_at': '2020-09-19T07:06:08.162772Z', 'last_transaction_at': '2020-09-19T07:06:08.162760Z', 'executions': [], 'ex
-# tended_hours': False, 'override_dtbp_checks': False, 'override_day_trade_checks': False, 'response_category': None, 'stop_triggered_at': None, 'last_trail_price
-# ': None, 'last_trail_price_updated_at': None, 'dollar_based_amount': None, 'total_notional': {'amount': '1.00', 'currency_code': 'USD', 'currency_id': '1072fc76
-# -1862-41ab-82c2-485837590762'}, 'executed_notional': None, 'investment_schedule_id': None}
-    
-#     print("TEST floats: BID + ASK: "+str(ask(i)+bid(i)))
-
-# print(json.dumps(json.loads(r.load_phoenix_account())))
-
-# print(r.find_stock_orders(symbol='ASM',cancel=None,quantity=1))
-
-# #return the average price of the most recent trade
-# def getLTP(symbol):
-#     get_stock_quote_
-
-
-# portfolio_symbols = get_portfolio_symbols()
-# print("Current Portfolio: " + str(portfolio_symbols) + "\n")

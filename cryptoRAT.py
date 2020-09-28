@@ -48,6 +48,14 @@ def getOrder(ident):
     print("Order state: " + order["state"])
     return order
     
+def getCryptoSymbolFromOrder(orderid):
+    s = r.get_crypto_quote_from_id(r.get_crypto_order_info('3f9b7c53-a608-455d-85bb-1220c1b20c62')['currency_pair_id'])['symbol']
+    if(s=="BTCUSD"): return "BTC"
+    if(s=="BSVUSD"): return "BSV"
+    if(s=="DOGEUSD"): return "DOGE"
+    if(s=="LTCUSD"): return "LTC"
+    if(s=="ETCUSD"): return "ETC"
+    if(s=="ETHUSD"): return "ETH"
 
 ############ PROGRAM ###################
     
@@ -67,9 +75,10 @@ change = 9999999 #percent change of price levels (going up), set from preference
 
 with open(preferences_file) as pdata:
     d = json.load(pdata)
-    xBuy = d["x"]
-    change = d["change"]
-xSell = xBuy*change
+    xBuy = d["xCrypto"]
+    change = d["changeCrypto"]
+    up = d["upCrypto"]
+xSell = xBuy*pow(change,up)
 print("\nBuying amount per level: $"+str(xBuy)+"\nSell amount per level up: $"+str(xSell))    
 
 if isfile(credentials_file):
@@ -105,8 +114,6 @@ input("\nYour cryptos and the last trade prices of each on your account?\n\n<ent
 numSymbols = len(d)
 # print(numSymbols)
 
-# print(r.get_crypto_quote("BTC"))
-
 positions = r.get_crypto_positions()
 
 numPositions = len(positions)
@@ -135,48 +142,48 @@ for s in d:
     if Ask < Ltp/change:
         print("\nBuying "+s+"...\n")        
         if realTrading:
-            orderid = buy(s,xBuy)
+            orderid = (buy(s,xBuy),"buyLow")
             time.sleep(5)
-            if getOrder(orderid)["state"] == "filled":
+            if getOrder(orderid[0])["state"] == "filled":
                 d[s]=Ltp/change
                 print("Buy order filled :)")
                 with open(crypto_file,'w') as outfile:
                     json.dump(d,outfile)  
             else:
-                if getOrder(orderid)["state"]=="queued": cancel(orderid) 
+                if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0]) 
                 check[s]=orderid
         else: mockSpend+=xBuy
         
     #selling
-    if Bid > Ltp*change: 
+    if Bid > Ltp*pow(change,up): 
         print("\nSelling "+s+" if sufficient quantity, otherwise buy...\n")
         
         if(s in quantities):
             if(quantities[s]*Bid>xSell):                
                 if realTrading:
-                    orderid = sell(s,xSell)
+                    orderid = (sell(s,xSell),"sellHigh")
                     time.sleep(5)
-                    if getOrder(orderid)["state"] == "filled":
+                    if getOrder(orderid[0])["state"] == "filled":
                         d[s]=Ltp*change
                         print("Sell order filled :)")
                         with open(crypto_file,'w') as outfile:
                             json.dump(d,outfile)  
                     else:
-                        if getOrder(orderid)["state"]=="queued": cancel(orderid) 
+                        if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0]) 
                         check[s]=orderid
                 else: mockSell+=xSell
             else:
                 print("Not enough crypto to sell, buying more instead...")
                 if realTrading:
-                    orderid = buy(s,xBuy)
+                    orderid = (buy(s,xBuy),"buyHigh")
                     time.sleep(5)
-                    if getOrder(orderid)["state"] == "filled":
-                        d[s]=Ltp*change
+                    if getOrder(orderid[0])["state"] == "filled":
+                        d[s]=Ltp*pow(change,up)
                         print("re-up Buy order filled\n")
                         with open(crypto_file,'w') as outfile:
                             json.dump(d,outfile)
                     else:
-                        if getOrder(orderid)["state"]=="queued": cancel(orderid) 
+                        if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0]) 
                         check[s]=orderid
                 else: mockSpend+=xBuy  
                         
@@ -185,21 +192,26 @@ for s in d:
 # need to check for filled before saving new LTP
 if realTrading:
     while len(check) > 0:
-        done = []        
-        for s in check:
-            print("checking: "+s)
-            order = getOrder(check[s])
+        print("Still not filled: LTP not updated so you may cancel these manually. Once all filled or cancelled this loop ends.  Trying again in 15 seconds...")
+        done = []   
+        for tup in check:
+            s = getCryptoSymbolFromOrder(tup[0])
+            print("checking: "+tup)
+            order = getOrder(tup[0])
             if order["state"] == "filled":
                 Ltp = d[s]
-                if order["side"] == "buy":            
-                    d[s]=Ltp/change
+                if order["side"] == "buy": 
+                    if(tup[1]=="buyLow"):
+                        d[s]=Ltp/change
+                    if(tup[1]=="buyHigh"):
+                        d[s]=Ltp*pow(change,up)
                 if order["side"] == "sell":
                     d[s]=Ltp*change
                 with open(crypto_file,'w') as outfile:
                             json.dump(d,outfile) 
-                done.append(s)
+                done.append(tup)
             if order["state"] == "cancelled" or order["state"] == "canceled": 
-                done.append(s)
+                done.append(tup)
         if len(done) > 0:
             for d in done:
                 del check[d]
@@ -215,61 +227,3 @@ else:
 input()
 
 
-
-########### notes
-
-
-### from a buy order
-
-# {'account_id': '03199a0c-f4d8-4cc6-b713-ffc39fa3d304', 'average_price': None, 'cancel_url': 'https://nummus.robinhood.com/orders/b3450d84-6e04-4a01-a026-61ac7ca
-# dc361/cancel/', 'created_at': '2020-09-19T17:43:01.024204-04:00', 'cumulative_quantity': '0.000000000000000000', 'currency_pair_id': '7b577ce3-489d-4269-9408-79
-# 6a0d1abb3a', 'executions': [], 'id': 'b3450d84-6e04-4a01-a026-61ac7cadc361', 'last_transaction_at': None, 'price': '6.220000000000000000', 'quantity': '0.803900
-# 000000000000', 'ref_id': '2cb3e5d3-5aeb-4920-9804-b1193eb4e2c4', 'rounded_executed_notional': '0.00', 'side': 'buy', 'state': 'unconfirmed', 'time_in_force': 'g
-# tc', 'type': 'market', 'updated_at': '2020-09-19T17:43:01.194170-04:00'}
-
-### from a sell order
-
-# {'account_id': '03199a0c-f4d8-4cc6-b713-ffc39fa3d304', 'average_price': None, 'cancel_url': 'https://nummus.robinhood.com/orders/100a69d3-db51-4f0d-af29-6eade42
-# 4271f/cancel/', 'created_at': '2020-09-19T17:43:08.168510-04:00', 'cumulative_quantity': '0.000000000000000000', 'currency_pair_id': '3d961844-d360-45fc-989b-f6
-# fca761d511', 'executions': [], 'id': '100a69d3-db51-4f0d-af29-6eade424271f', 'last_transaction_at': None, 'price': '11048.370000000000000000', 'quantity': '0.00
-# 0475000000000000', 'ref_id': '4b390e26-610f-462b-b2d1-c36c0deb460a', 'rounded_executed_notional': '0.00', 'side': 'sell', 'state': 'unconfirmed', 'time_in_force
-# ': 'gtc', 'type': 'market', 'updated_at': '2020-09-19T17:43:08.168543-04:00'}
-
-
-
-
-####### printing the check order after initial send order
-
- 
-# Selling ETC if sufficient quantity, otherwise buy...
-# 
-# Not enough stock to sell, buying more instead...
-# Buying $5 worth of ETC...
-# {'account_id': '03199a0c-f4d8-4cc6-b713-ffc39fa3d304', 'average_price': None, 'cancel_url': 'https://nummus.robinhood.com/orders/3cb0a3f8-ecc6-4e19-b6f5-1853d17
-# e9493/cancel/', 'created_at': '2020-09-19T17:50:07.049056-04:00', 'cumulative_quantity': '0.000000000000000000', 'currency_pair_id': '7b577ce3-489d-4269-9408-79
-# 6a0d1abb3a', 'executions': [], 'id': '3cb0a3f8-ecc6-4e19-b6f5-1853d17e9493', 'last_transaction_at': None, 'price': '6.210000000000000000', 'quantity': '0.805200
-# 000000000000', 'ref_id': 'b640e66d-a441-44cc-ae3d-7e5a27de4a2a', 'rounded_executed_notional': '0.00', 'side': 'buy', 'state': 'unconfirmed', 'time_in_force': 'g
-# tc', 'type': 'market', 'updated_at': '2020-09-19T17:50:07.203329-04:00'}
-# {'account_id': '03199a0c-f4d8-4cc6-b713-ffc39fa3d304', 'average_price': None, 'cancel_url': 'https://nummus.robinhood.com/orders/3cb0a3f8-ecc6-4e19-b6f5-1853d17
-# e9493/cancel/', 'created_at': '2020-09-19T17:50:07.049056-04:00', 'cumulative_quantity': '0.000000000000000000', 'currency_pair_id': '7b577ce3-489d-4269-9408-79
-# 6a0d1abb3a', 'executions': [], 'id': '3cb0a3f8-ecc6-4e19-b6f5-1853d17e9493', 'last_transaction_at': None, 'price': '6.210000000000000000', 'quantity': '0.805200
-# 000000000000', 'ref_id': 'b640e66d-a441-44cc-ae3d-7e5a27de4a2a', 'rounded_executed_notional': '0.00', 'side': 'buy', 'state': 'unconfirmed', 'time_in_force': 'g
-# tc', 'type': 'market', 'updated_at': '2020-09-19T17:50:07.203329-04:00'}
-# ETH stock sellable: 0.0
-# BTC stock sellable: 0.00189095
-# 
-# Selling BTC if sufficient quantity, otherwise buy...
-# 
-# Selling 5.25 of BTC...
-# {'account_id': '03199a0c-f4d8-4cc6-b713-ffc39fa3d304', 'average_price': None, 'cancel_url': 'https://nummus.robinhood.com/orders/4e140a03-cdca-422e-8530-766b5d4
-# 2654c/cancel/', 'created_at': '2020-09-19T17:50:14.195905-04:00', 'cumulative_quantity': '0.000000000000000000', 'currency_pair_id': '3d961844-d360-45fc-989b-f6
-# fca761d511', 'executions': [], 'id': '4e140a03-cdca-422e-8530-766b5d42654c', 'last_transaction_at': None, 'price': '11044.720000000000000000', 'quantity': '0.00
-# 0475000000000000', 'ref_id': '88decfe2-093f-471f-8118-cd3c41ce35ad', 'rounded_executed_notional': '0.00', 'side': 'sell', 'state': 'unconfirmed', 'time_in_force
-# ': 'gtc', 'type': 'market', 'updated_at': '2020-09-19T17:50:14.195924-04:00'}
-# {'account_id': '03199a0c-f4d8-4cc6-b713-ffc39fa3d304', 'average_price': '11044.724019000000000000', 'cancel_url': None, 'created_at': '2020-09-19T17:50:14.19590
-# 5-04:00', 'cumulative_quantity': '0.000475000000000000', 'currency_pair_id': '3d961844-d360-45fc-989b-f6fca761d511', 'executions': [{'effective_price': '11044.7
-# 24019000000000000', 'id': '4c73da17-fb9e-42a9-9e24-c322e57a3f24', 'quantity': '0.000475000000000000', 'timestamp': '2020-09-19T17:50:14.284000-04:00'}], 'id': '
-# 4e140a03-cdca-422e-8530-766b5d42654c', 'last_transaction_at': '2020-09-19T17:50:14.284000-04:00', 'price': '11044.720000000000000000', 'quantity': '0.0004750000
-# 00000000', 'ref_id': '88decfe2-093f-471f-8118-cd3c41ce35ad', 'rounded_executed_notional': '5.24', 'side': 'sell', 'state': 'filled', 'time_in_force': 'gtc', 'ty
-# pe': 'market', 'updated_at': '2020-09-19T17:50:14.739274-04:00'}
-# Sell order filled :)

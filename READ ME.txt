@@ -1,0 +1,68 @@
+RATs V1
+Robinhood Auto Traders
+
+Includes two separate trading bots
+- stockRAT 
+- cryptoRAT
+
+---How to use--- 
+1. decide how much money you want to spend each time you buy.
+2. Manually buy all the stocks you want the autotraders to trade and record the price you bought each stock at
+3. Record the symbols and first buy prices in the rh_stock_data.json or rh_crypto_data.json
+4. If your account is small, less than day trading requirements, run this only once per day. 
+   With a big day trading account, run as many times as you want.
+
+---JSON - how to---
+all data inside curly braces		---> {}
+all key pairs separated by comma: 	---> {pair1,pair2,pair3}
+all pairs take form: 			--->  symbol : buyprice
+all symbols capital and in quotes:	---> "SYM"
+all prices without quotes 		---> 150.0
+
+example:
+{
+	"SYM1": 5.53,
+	"SYM2": 79.11,
+	"SYM3": 428.01
+}
+
+notice ONLY 2 commas separate 3 items
+
+---Files---
+
+credentials.json 
+- specify Robinhood account login and password
+
+preferences.json
+x - amount to spend per stock at each price level going down from previous buy price
+change - price change factor between buys, where 1/change = the next price level down
+up - the sell amount is affected x*(change^up) and the sell price is (last_buy_price)*(change^up)
+xCrypto, changeCrypto, upCrypto - are the same but for crypto, not stocks
+
+rh_stock_data.json
+- store the symbols and their last buy prices for stocks
+
+rh_crypto_data.json
+- store the symbols and their last buy prices for cryptocurrrencies
+
+* you can always add more tradable fractional share stocks and cryptocurrencies to json files
+
+---FUNCTION---
+- Bots spend same amount of money on each buy (with the exception of DOGE cryptocurrency, which will be as close as possible to xCrypto)
+- Buys are separated going down in price by 1/change
+- Sells : see "up - ..." under "---FILES--- : preferences.json" above
+
+
+
+
+pyinstaller installed via pip
+
+if errors found, check py file code and recompile with pyinstaller
+
+pyinstaller exe's flag windows defender with "wacatac" trojan.
+this is *likely* a false positive
+where i've read about this online everyone says "please tell your antivirus company to stop flagging this because its not true"
+
+personally, i don't have the know-how to verify this for myself
+
+if you are unwilling to take the risk for yourself, do not use the exe files, just use python for the _RAT.py files 
