@@ -46,7 +46,13 @@ def getOrder(ident):
     return order
 
 def getSymbolFromOrder(order):
-    return r.get_symbol_by_url(order['instrument'])
+    return r.get_symbol_by_url(getOrder(order)['instrument'])
+# Traceback (most recent call last):
+#   File "C:\Users\Jeremy\workspace\Robin_Stocks\stockRAT.py", line 190, in <module>
+#     s = getSymbolFromOrder(tup[0])
+#   File "C:\Users\Jeremy\workspace\Robin_Stocks\stockRAT.py", line 49, in getSymbolFromOrder
+#     return r.get_symbol_by_url(order['instrument'])
+# TypeError: string indices must be integers
     
 
 ############ PROGRAM ###################
