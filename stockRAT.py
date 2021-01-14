@@ -25,19 +25,19 @@ def bid(symbol): #test: works
 def buy(symbol,dollars):
     print("Buying $"+str(dollars)+" worth of "+ symbol+"...")
     trade = r.order_buy_fractional_by_price(symbol, dollars,'gfd','ask_price',False)
-#     print(trade) # comment out when done testing
+    print(trade) # comment out when done testing
     return trade['id']
     
 #sell x*change worth of stock, returns the trade id
 def sell(symbol,dollars):
     print("Selling "+str(dollars)+" of "+ symbol+"...")
     trade = r.order_sell_fractional_by_price(symbol, dollars,'gfd','bid_price',False)
-#     print(trade) # comment out when done testing
+    print(trade) # comment out when done testing
     return trade['id']
 
 def cancel(ident):
     cancel = r.cancel_stock_order(ident)
-#     print(cancel)
+    print(cancel)
     return cancel
 
 def getOrder(ident):
@@ -53,7 +53,22 @@ def getSymbolFromOrder(order):
 #   File "C:\Users\Jeremy\workspace\Robin_Stocks\stockRAT.py", line 49, in getSymbolFromOrder
 #     return r.get_symbol_by_url(order['instrument'])
 # TypeError: string indices must be integers
-    
+
+def countLevelsUp(previousPrice,currentPrice,factor):
+    levels = 0
+    previousPrice *= factor
+    while previousPrice < currentPrice:
+        levels+=1
+        previousPrice *= factor
+    return levels
+
+def countLevelsDown(previousPrice,currentPrice,factor):
+    levels = 0
+    previousPrice /= factor
+    while previousPrice > currentPrice:
+        levels+=1
+        previousPrice /= factor
+    return levels
 
 ############ PROGRAM ###################
     
@@ -76,8 +91,8 @@ with open(preferences_file) as pdata:
     xBuy = d["x"]
     change = d["change"]
     up = d["up"]
-xSell = xBuy*pow(change,up)
-print("\nBuying amount per level: $"+str(xBuy)+"\nSell amount per level up: $"+str(xSell))    
+
+print("\nBuying amount per level: $"+str(xBuy))    
 
 if isfile(credentials_file):
     with open(credentials_file) as cdata:
@@ -127,101 +142,109 @@ index = 0
 check = {}
 #s is symbol, d is the whole rh_stock_data json dictionary
 for s in d:
-    if s in quantities:
-        print("\n"+s+" stock sellable: "+str(quantities[s]))
-#     print("\n"+s+" last trade price: "+str(d[s]))
-    Ltp = d[s]
-#     print(s+" Ask: "+str(ask(s)))
-    Ask = ask(s)
-#     print(s+" Bid: "+str(bid(s)))
-    Bid = bid(s)
-    
-    #buying
-    if Ask < Ltp/change:
-        print("\nBuying "+s+"...\n")        
-        if realTrading:
-            orderid = (buy(s,xBuy),"buyLow")
-            time.sleep(5)
-            if getOrder(orderid[0])["state"] == "filled":
-                d[s]=Ltp/change
-                print("Buy order filled :)")
-                with open(stock_file,'w') as outfile:
-                    json.dump(d,outfile)  
-            else: 
-                if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0])
-                check[s]=orderid
-        else: mockSpend+=xBuy
+    try:
+        if s in quantities:
+            print("\n"+s+" stock sellable: "+str(quantities[s]))
+    #     print("\n"+s+" last trade price: "+str(d[s]))
+        Ltp = d[s]
+    #     print(s+" Ask: "+str(ask(s)))
+        Ask = ask(s)
+    #     print(s+" Bid: "+str(bid(s)))
+        Bid = bid(s)
         
-    #selling
-    if Bid > Ltp*pow(change,up): 
-        print("\nSelling "+s+" if sufficient quantity, otherwise buy...\n")
-        
-        if(s in quantities):
-            if(quantities[s]*Bid>xSell):                
-                if realTrading:
-                    orderid = (sell(s,xSell),"sellHigh")
-                    time.sleep(5)
-                    if getOrder(orderid[0])["state"] == "filled":
-                        d[s]=Ltp*change
-                        print("Sell order filled :)")
-                        with open(stock_file,'w') as outfile:
-                            json.dump(d,outfile)  
-                    else: 
-                        if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0])
-                        check[s]=orderid
-                else: mockSell+=xSell
-            else:
-                print("Not enough stock to sell, buying more instead...")
-                if realTrading:
-                    orderid = (buy(s,xBuy),"buyHigh")
-                    time.sleep(5)
-                    if getOrder(orderid[0])["state"] == "filled":
-                        d[s]=Ltp*pow(change,up)
-                        print("re-up Buy order filled")
-                        with open(stock_file,'w') as outfile:
-                            json.dump(d,outfile)  
-                    else: 
-                        if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0])
-                        check[s]=orderid
-                else: mockSpend+=xBuy
-                        
+        #buying
+        if Ask < Ltp/change:
+            levelsDown = countLevelsDown(Ltp, Ask, change)
+            print("\nPrice has fallen by "+str(levelsDown)+" levels")
+            print("\nBuying $"+str(xBuy*levelsDown)+" worth of "+s+"...\n")        
+            if realTrading:
+                orderid = (buy(s,xBuy*levelsDown),"buyLow",levelsDown)
+                time.sleep(5)
+                if getOrder(orderid[0])["state"] == "filled":
+                    d[s]=Ltp*pow(1.0/change,levelsDown)
+                    print("Buy order filled :)")
+                    with open(stock_file,'w') as outfile:
+                        json.dump(d,outfile)  
+                else: 
+                    if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0])
+                    check[s]=orderid
+            else: mockSpend+=xBuy*levelsDown
+            
+        #selling
+        if Bid > Ltp*pow(change,up): 
+            levelsUp = countLevelsUp(Ltp, Bid, change)
+            print("\nPrice has risen by "+str(levelsUp)+" levels")
+            xSell = xBuy*pow(change,levelsUp)
+            print("\nSelling $"+str(xSell)+" worth of "+s+" if sufficient quantity, otherwise buy...\n")            
+            
+            if(s in quantities):
+                if(quantities[s]*Bid>=xSell):                
+                    if realTrading:
+                        orderid = (sell(s,xSell),"sellHigh",levelsUp)
+                        time.sleep(5)
+                        if getOrder(orderid[0])["state"] == "filled":
+                            d[s]=Ltp*change
+                            print("Sell order filled :)")
+                            with open(stock_file,'w') as outfile:
+                                json.dump(d,outfile)  
+                        else: 
+                            if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0])
+                            check[s]=orderid
+                    else: mockSell+=xSell
+                else:
+                    print("\nNot enough stock to sell, buying more instead...")
+                    if realTrading:
+                        print("\nBuying $"+str(xBuy*5)+" worth of "+s+"...") 
+                        orderid = (buy(s,xBuy*5),"buyHigh",levelsUp)
+                        time.sleep(5)
+                        if getOrder(orderid[0])["state"] == "filled":
+                            d[s]=Ask
+                            print("\nre-up Buy order filled")
+                            with open(stock_file,'w') as outfile:
+                                json.dump(d,outfile)  
+                        else: 
+                            if getOrder(orderid[0])["state"]=="queued": cancel(orderid[0])
+                            check[s]=orderid
+                    else: mockSpend+=xBuy*5
+    except:
+        print("\nerror\n")
+    print("\n*********************")  
     
 # all the orders that were not filled 5 seconds later
 # need to check for filled before saving new LTP
 if realTrading:
-    while len(check) > 0:
-        print("Still not filled: LTP not updated so you may cancel these manually. Once all filled or cancelled this loop ends.  Trying again in 15 seconds...")
-        done = []
-        for tup in check:
-            s = getSymbolFromOrder(tup[0])
-            print("checking: "+tup)
-            order = getOrder(tup[0])
-            if order["state"] == "filled":
-                Ltp = d[s]
-                if order["side"] == "buy":            
-                    if(tup[1]=="buyLow"):
-                        d[s]=Ltp/change
-                    if(tup[1]=="buyHigh"):
-                        d[s]=Ltp*pow(change,up)
-                if order["side"] == "sell":
-                    d[s]=Ltp*change
-                with open(stock_file,'w') as outfile:
-                            json.dump(d,outfile) 
-                done.append(tup)
-            if order["state"] == "cancelled" or order["state"] == "canceled": 
-                done.append(tup)
-        if len(done) > 0:
-            for d in done:
-                del check[d]
-        
-        time.sleep(15)
-        print(check)
+    done = []
+    print(check)
+    while len(check) > len(done):
+        try:
+            print("\nStill not filled: LTP not updated so you may cancel these manually. Once all filled or cancelled this loop ends.  Trying again in 15 seconds...")
+            for tup in check:
+                print(check)
+                print(check[tup][0])
+                s = getSymbolFromOrder(check[tup][0])            
+                time.sleep(5);
+                order = getOrder(check[tup][0])
+                if order["state"] == "filled":
+                    Ltp = d[s]
+                    if order["side"] == "buy":            
+                        if(check[tup][1]=="buyLow"):
+                            d[s]=Ltp/pow(change,check[tup][2])
+                        if(check[tup][1]=="buyHigh"):
+                            d[s]=ask(s)
+                    if order["side"] == "sell":
+                        d[s]=Ltp*change
+                    with open(stock_file,'w') as outfile:
+                                json.dump(d,outfile) 
+                    done.append(tup)
+                if order["state"] == "cancelled" or order["state"] == "canceled": 
+                    done.append(tup)
+            time.sleep(15)
+            print(check)
+        except: print("\nerror...\n")
 else:
     print("\nSpend amount would be: "+str(mockSpend))
     print("Sell amount would be: "+str(mockSell))
             
-    
+print("\nDONE\n")
 #keep window open till user hits <enter>
 input()
-        
-    
